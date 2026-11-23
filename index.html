@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Testo AI</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --primary: #3b82f6;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --border: #334155;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+    body { background: var(--bg); color: var(--text); display: flex; flex-direction: column; height: 100dvh; }
+
+    /* Header */
+    header {
+      background: var(--surface);
+      padding: 14px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+    }
+    header h1 { font-size: 1.1rem; font-weight: 700; }
+    .btn-icon {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    /* Panel Pengaturan (Bisa Buka-Tutup) */
+    #settings-panel {
+      display: none;
+      background: var(--surface);
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+      flex-direction: column;
+      gap: 10px;
+    }
+    #settings-panel.open { display: flex; }
+    label { font-size: 0.8rem; color: var(--muted); }
+    input, textarea {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+    }
+    textarea { resize: vertical; min-height: 70px; }
+    .settings-actions { display: flex; gap: 8px; margin-top: 4px; }
+    .btn-save { background: var(--primary); border: none; color: white; padding: 10px; border-radius: 8px; flex: 1; font-weight: 600; cursor: pointer; }
+    .btn-clear { background: #ef4444; border: none; color: white; padding: 10px; border-radius: 8px; font-weight: 600; cursor: pointer; }
+
+    /* Area Chat */
+    #chat-box {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .msg {
+      max-width: 82%;
+      padding: 10px 14px;
+      border-radius: 14px;
+      line-height: 1.45;
+      font-size: 0.95rem;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .msg.user { background: var(--primary); align-self: flex-end; border-bottom-right-radius: 4px; }
+    .msg.assistant { background: var(--surface); border: 1px solid var(--border); align-self: flex-start; border-bottom-left-radius: 4px; }
+    .msg.system-info { align-self: center; font-size: 0.8rem; color: var(--muted); background: transparent; text-align: center; }
+
+    /* Input Bawah */
+    #input-area {
+      background: var(--surface);
+      padding: 10px 12px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+    }
+    #user-input { flex: 1; border-radius: 20px; padding: 10px 16px; }
+    #send-btn {
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 20px;
+      padding: 0 18px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #send-btn:disabled { opacity: 0.5; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Testo AI</h1>
+    <button class="btn-icon" onclick="toggleSettings()">⚙️ Pengaturan</button>
+  </header>
+
+  <!-- Panel Pengaturan Server & Memori -->
+  <div id="settings-panel">
+    <div>
+      <label>URL Cloudflare Tunnel (tanpa garis miring di akhir)</label>
+      <input type="url" id="server-url" placeholder="https://trycloudflare.com" />
+    </div>
+    <div>
+      <label>Nama Model Ollama</label>
+      <input type="text" id="model-name" placeholder="qwen2.5:3b" />
+    </div>
+    <div>
+      <label>Memori / Instruksi Pribadi AI (System Prompt)</label>
+      <textarea id="system-prompt" placeholder="Contoh: Kamu adalah asisten pribadiku yang santai dan suka bantu brainstorming."></textarea>
+    </div>
+    <div class="settings-actions">
+      <button class="btn-save" onclick="saveSettings()">Simpan Pengaturan</button>
+      <button class="btn-clear" onclick="clearChat()">Hapus Chat</button>
+    </div>
+  </div>
+
+  <!-- Daftar Pesan -->
+  <div id="chat-box">
+    <div class="msg system-info">Klik ⚙️ Pengaturan di kanan atas untuk memasukkan URL Cloudflare PC kamu.</div>
+  </div>
+
+  <!-- Kotak Ketik Pesan -->
+  <form id="input-area" onsubmit="sendMessage(event)">
+    <input type="text" id="user-input" placeholder="Ketik pesan ke Testo AI..." autocomplete="off" required />
+    <button type="submit" id="send-btn">Kirim</button>
+  </form>
+
+  <script>
+    // --- 1. PENGATURAN & MEMORI LOKAL ---
+    const defaultUrl = "https://trycloudflare.com";
+    const defaultModel = "qwen2.5:3b";
+    const defaultPrompt = "Kamu adalah Testo AI, asisten pribadi yang ramah, santai, dan enak diajak ngobrol atau brainstorming.";
+
+    let chatHistory = JSON.parse(localStorage.getItem("testo_chat") || "[]");
+
+    // Muat pengaturan tersimpan saat halaman dibuka
+    document.getElementById("server-url").value = localStorage.getItem("testo_url") || defaultUrl;
+    document.getElementById("model-name").value = localStorage.getItem("testo_model") || defaultModel;
+    document.getElementById("system-prompt").value = localStorage.getItem("testo_prompt") || defaultPrompt;
+
+    function toggleSettings() {
+      document.getElementById("settings-panel").classList.toggle("open");
+    }
+
+    function saveSettings() {
+      const url = document.getElementById("server-url").value.trim().replace(/\/$/, "");
+      const model = document.getElementById("model-name").value.trim();
+      const prompt = document.getElementById("system-prompt").value.trim();
+
+      localStorage.setItem("testo_url", url);
+      localStorage.setItem("testo_model", model);
+      localStorage.setItem("testo_prompt", prompt);
+
+      toggleSettings();
+      addBubble("Pengaturan berhasil disimpan!", "system-info");
+    }
+
+    function clearChat() {
+      chatHistory = [];
+      localStorage.removeItem("testo_chat");
+      document.getElementById("chat-box").innerHTML = '<div class="msg system-info">Riwayat chat dibersihkan.</div>';
+      toggleSettings();
+    }
+
+    // --- 2. TAMPILAN CHAT ---
+    const chatBox = document.getElementById("chat-box");
+
+    function addBubble(text, role) {
+      const div = document.createElement("div");
+      div.className = `msg ${role}`;
+      div.textContent = text;
+      chatBox.appendChild(div);
+      chatBox.scrollTop = chatBox.scrollHeight;
+      return div;
+    }
+
+    // Tampilkan ulang riwayat chat lama jika ada
+    if (chatHistory.length > 0) {
+      chatBox.innerHTML = "";
+      chatHistory.forEach(msg => addBubble(msg.content, msg.role));
+    }
+
+    // --- 3. KONEKSI KE OLLAMA DI PC ---
+    async function sendMessage(e) {
+      e.preventDefault();
+      const input = document.getElementById("user-input");
+      const sendBtn = document.getElementById("send-btn");
+      const text = input.value.trim();
+      if (!text) return;
+
+      const serverUrl = localStorage.getItem("testo_url") || defaultUrl;
+      const modelName = localStorage.getItem("testo_model") || defaultModel;
+      const systemPrompt = localStorage.getItem("testo_prompt") || defaultPrompt;
+
+      // Tampilkan pesan user
+      input.value = "";
+      addBubble(text, "user");
+      chatHistory.push({ role: "user", content: text });
+      localStorage.setItem("testo_chat", JSON.stringify(chatHistory));
+
+      // Bubble loading sementara
+      sendBtn.disabled = true;
+      const loadingBubble = addBubble("Testo AI sedang mengetik...", "assistant");
+
+      // Susun memori + riwayat chat (maksimal 10 pesan terakhir agar ringan di PC)
+      const messagesPayload = [
+        { role: "system", content: systemPrompt },
+        ...chatHistory.slice(-10)
+      ];
+
+      try {
+        const response = await fetch(`${serverUrl}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: modelName,
+            messages: messagesPayload,
+            stream: false
+          })
+        });
+
+        if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+
+        const data = await response.json();
+        const reply = data.message.content;
+
+        loadingBubble.textContent = reply;
+        chatHistory.push({ role: "assistant", content: reply });
+        localStorage.setItem("testo_chat", JSON.stringify(chatHistory));
+
+      } catch (err) {
+        loadingBubble.textContent = "❌ Gagal terhubung ke PC. Pastikan PC menyala, Ollama aktif, dan URL Cloudflare di Pengaturan sudah benar.";
+        console.error(err);
+      } finally {
+        sendBtn.disabled = false;
+        chatBox.scrollTop = chatBox.scrollHeight;
+      }
+    }
+  </script>
+</body>
+</html>
